@@ -1,0 +1,326 @@
+clean-up-that-stash/
+├── build.gradle
+├── settings.gradle
+├── runelite-plugin.properties
+├── README.md
+└── src/main/java/com/cleanupthatstash/
+    ├── CleanUpThatStashPlugin.java
+    ├── CleanUpThatStashConfig.java
+    ├── ItemCategory.java
+    ├── InventoryOverlay.java
+    └── BankOverlay.java
+plugins {
+    id 'java'
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        url = 'https://repo.runelite.net'
+    }
+}
+
+dependencies {
+    compileOnly 'net.runelite:client:latest.release'
+    compileOnly 'org.projectlombok:lombok:1.18.30'
+    annotationProcessor 'org.projectlombok:lombok:1.18.30'
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(11)
+    }
+}
+rootProject.name = 'clean-up-that-stash'
+displayName=Clean Up That Stash
+author=YourNameHere
+description=Visually categorizes inventory and bank items to help organize your stash.
+tags=inventory,bank,overlay,organizer,cleanup
+plugins=com.cleanupthatstash.CleanUpThatStashPlugin
+# Clean Up That Stash
+
+Clean Up That Stash is a RuneLite plugin that visually categorizes inventory and bank items to help players organize and clean up their stash.
+
+## Features
+- Inventory overlay with item categorization
+- Bank overlay with item categorization
+- Supports all current and future OSRS items
+- Configurable overlays
+- Visual-only (no automation or item movement)
+
+## Categories
+- Melee
+- Ranged
+- Magic
+- Potions
+- Skilling
+- Quest items
+
+Items are categorized using item properties such as name, equipment slot, and tradeability.
+
+## Compliance
+- No automation
+- No clicks or item movement
+- Overlay-only visuals
+- Fully compliant with RuneLite Plugin Hub rules
+package com.cleanupthatstash;
+
+import com.google.inject.Provides;
+import javax.inject.Inject;
+import net.runelite.client.config.ConfigManager;
+import net.runelite.client.plugins.Plugin;
+import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.ui.overlay.OverlayManager;
+
+@PluginDescriptor(
+        name = "Clean Up That Stash",
+        description = "Visual inventory and bank organization by item category"
+)
+public class CleanUpThatStashPlugin extends Plugin
+{
+    @Inject private OverlayManager overlayManager;
+    @Inject private InventoryOverlay inventoryOverlay;
+    @Inject private BankOverlay bankOverlay;
+
+    @Override
+    protected void startUp()
+    {
+        overlayManager.add(inventoryOverlay);
+        overlayManager.add(bankOverlay);
+    }
+
+    @Override
+    protected void shutDown()
+    {
+        overlayManager.remove(inventoryOverlay);
+        overlayManager.remove(bankOverlay);
+    }
+
+    @Provides
+    CleanUpThatStashConfig provideConfig(ConfigManager configManager)
+    {
+        return configManager.getConfig(CleanUpThatStashConfig.class);
+    }
+}
+package com.cleanupthatstash;
+
+import net.runelite.client.config.Config;
+import net.runelite.client.config.ConfigGroup;
+import net.runelite.client.config.ConfigItem;
+
+@ConfigGroup("cleanupthatstash")
+public interface CleanUpThatStashConfig extends Config
+{
+    @ConfigItem(
+            keyName = "showInventory",
+            name = "Inventory Overlay",
+            description = "Show inventory item categories"
+    )
+    default boolean showInventory()
+    {
+        return true;
+    }
+
+    @ConfigItem(
+            keyName = "showBank",
+            name = "Bank Overlay",
+            description = "Show bank item categories"
+    )
+    default boolean showBank()
+    {
+        return true;
+    }
+
+    @ConfigItem(
+            keyName = "showUnknown",
+            name = "Show Unknown Items",
+            description = "Highlight uncategorized items"
+    )
+    default boolean showUnknown()
+    {
+        return false;
+    }
+}
+package com.cleanupthatstash;
+
+import java.awt.Color;
+import net.runelite.api.Client;
+import net.runelite.api.ItemComposition;
+import net.runelite.api.EquipmentInventorySlot;
+
+public enum ItemCategory
+{
+    MELEE(new Color(200, 50, 50)),
+    RANGED(new Color(50, 200, 50)),
+    MAGIC(new Color(50, 200, 200)),
+    POTIONS(new Color(200, 100, 200)),
+    SKILLING(new Color(255, 150, 50)),
+    QUEST(new Color(230, 230, 50)),
+    UNKNOWN(Color.GRAY);
+
+    private final Color color;
+
+    ItemCategory(Color color)
+    {
+        this.color = color;
+    }
+
+    public Color getColor()
+    {
+        return color;
+    }
+
+    public static ItemCategory classify(Client client, int itemId)
+    {
+        ItemComposition item = client.getItemDefinition(itemId);
+        if (item == null || item.getName() == null)
+        {
+            return UNKNOWN;
+        }
+
+        String name = item.getName().toLowerCase();
+        int slot = item.getEquipmentSlot();
+
+        if (name.contains("potion") || name.matches(".*\\([1-4]\\)$"))
+            return POTIONS;
+
+        if (name.contains("staff") || name.contains("wand") ||
+            name.contains("tome") || name.contains("trident") ||
+            name.contains("rune"))
+            return MAGIC;
+
+        if (name.contains("bow") || name.contains("crossbow") ||
+            name.contains("arrow") || name.contains("bolt") ||
+            name.contains("dart") || name.contains("knife") ||
+            slot == EquipmentInventorySlot.AMMO.getSlotIdx())
+            return RANGED;
+
+        if (name.contains("sword") || name.contains("scimitar") ||
+            name.contains("whip") || name.contains("maul") ||
+            name.contains("mace") || name.contains("spear") ||
+            name.contains("halberd"))
+            return MELEE;
+
+        if (name.contains("pickaxe") || name.contains("axe") ||
+            name.contains("harpoon") || name.contains("hammer") ||
+            name.contains("tinderbox") || name.contains("chisel") ||
+            name.contains("fishing rod"))
+            return SKILLING;
+
+        if (!item.isTradeable() && slot == -1)
+            return QUEST;
+
+        return UNKNOWN;
+    }
+}
+package com.cleanupthatstash;
+
+import java.awt.Dimension;
+import java.awt.Graphics2D;
+import java.awt.Rectangle;
+import javax.inject.Inject;
+import net.runelite.api.Client;
+import net.runelite.api.InventoryID;
+import net.runelite.api.Item;
+import net.runelite.api.widgets.Widget;
+import net.runelite.client.ui.overlay.Overlay;
+import net.runelite.client.ui.overlay.OverlayLayer;
+import net.runelite.client.ui.overlay.OverlayPosition;
+
+public class InventoryOverlay extends Overlay
+{
+    private final Client client;
+    private final CleanUpThatStashConfig config;
+
+    @Inject
+    InventoryOverlay(Client client, CleanUpThatStashConfig config)
+    {
+        this.client = client;
+        this.config = config;
+        setLayer(OverlayLayer.ABOVE_WIDGETS);
+        setPosition(OverlayPosition.DYNAMIC);
+    }
+
+    @Override
+    public Dimension render(Graphics2D graphics)
+    {
+        if (!config.showInventory())
+            return null;
+
+        Widget inventory = client.getWidget(InventoryID.INVENTORY.getWidgetId());
+        if (inventory == null || inventory.isHidden())
+            return null;
+
+        Item[] items = client.getItemContainer(InventoryID.INVENTORY).getItems();
+
+        for (int i = 0; i < items.length; i++)
+        {
+            Item item = items[i];
+            if (item.getId() <= 0)
+                continue;
+
+            ItemCategory category = ItemCategory.classify(client, item.getId());
+            if (category == ItemCategory.UNKNOWN && !config.showUnknown())
+                continue;
+
+            Rectangle bounds = inventory.getWidgetItem(i).getCanvasBounds();
+            graphics.setColor(category.getColor());
+            graphics.draw(bounds);
+        }
+
+        return null;
+    }
+}
+package com.cleanupthatstash;
+
+import java.awt.Dimension;
+import java.awt.Graphics2D;
+import java.awt.Rectangle;
+import javax.inject.Inject;
+import net.runelite.api.Client;
+import net.runelite.api.widgets.Widget;
+import net.runelite.api.widgets.WidgetItem;
+import net.runelite.api.widgets.WidgetID;
+import net.runelite.client.ui.overlay.Overlay;
+import net.runelite.client.ui.overlay.OverlayLayer;
+import net.runelite.client.ui.overlay.OverlayPosition;
+
+public class BankOverlay extends Overlay
+{
+    private final Client client;
+    private final CleanUpThatStashConfig config;
+
+    @Inject
+    BankOverlay(Client client, CleanUpThatStashConfig config)
+    {
+        this.client = client;
+        this.config = config;
+        setLayer(OverlayLayer.ABOVE_WIDGETS);
+        setPosition(OverlayPosition.DYNAMIC);
+    }
+
+    @Override
+    public Dimension render(Graphics2D graphics)
+    {
+        if (!config.showBank())
+            return null;
+
+        Widget bank = client.getWidget(WidgetID.BANK_ITEM_CONTAINER);
+        if (bank == null || bank.isHidden())
+            return null;
+
+        for (WidgetItem item : bank.getWidgetItems())
+        {
+            ItemCategory category = ItemCategory.classify(client, item.getId());
+            if (category == ItemCategory.UNKNOWN && !config.showUnknown())
+                continue;
+
+            Rectangle bounds = item.getCanvasBounds();
+            graphics.setColor(category.getColor());
+            graphics.draw(bounds);
+        }
+
+        return null;
+    }
+}
+
